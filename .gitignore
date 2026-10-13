@@ -1,1 +1,7 @@
-# bonk-arena
+# Regenerable: run ./blender --background --python make_game.py
+bonk.blend
+*.blend1
+build_bonk/
+__pycache__/
+*.pyc
+khafile.js
