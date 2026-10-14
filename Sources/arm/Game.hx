@@ -18,7 +18,7 @@ class Game extends Trait {
     public var cameraRig: CameraRig;
     public var playerFighter: Fighter;
 
-    public var state = "countdown"; // countdown | fight | draft | over
+    public var state = "select"; // select | countdown | fight | draft | over
     public var stateT = 0.0;
     public var round = 1;
     public var roundWins: Array<Int> = [];
@@ -44,7 +44,7 @@ class Game extends Trait {
 
     var messages: Array<{text: String, t: Float, color: Int}> = [];
     var font: kha.Font = null;
-    var hitstop = 0;
+    public var hitstop = 0;
 
     var spawnPoints: Array<{x: Float, y: Float}> = [
         {x: 0.0, y: -10.0}, {x: 0.0, y: 10.0}, {x: -10.0, y: 0.0}, {x: 10.0, y: 0.0}
@@ -67,7 +67,7 @@ class Game extends Trait {
             }
         }
         resetPositions();
-        msg("ROUND 1 - FIGHT!", 0xFFFFFFFF);
+        msg("CHOOSE YOUR FIGHTER!", 0xFFFFFFFF);
     }
 
     public function registerFighter(f: Fighter) {
@@ -100,7 +100,7 @@ class Game extends Trait {
         });
     }
 
-    public function onKill(dead: Fighter, killer: Fighter) {
+    public function onKill(dead: Fighter, killer: Fighter, ringOut = false) {
         if (!dead.alive) return;
         dead.alive = false;
         dead.hide();
@@ -108,10 +108,25 @@ class Game extends Trait {
         hitstop = 4;
         if (cameraRig != null) cameraRig.shake(0.7);
         var dn = fighterName(dead);
-        if (killer == null || killer == dead) {
+        if (ringOut) {
+            if (killer != null && killer != dead) msg(fighterName(killer) + " RANG OUT " + dn + "!", 0xFFFFFF00);
+            else msg(dn + " got RUNG OUT!", 0xFFFF9800);
+        } else if (killer == null || killer == dead) {
             msg(dn + " got ZONED!", 0xFFFF9800);
         } else {
             msg(fighterName(killer) + " bonked " + dn + "!", killer.isPlayer ? 0xFF4FC3F7 : 0xFFFF8A65);
+        }
+        // Shrapnel: kills explode into bullets
+        if (killer != null && killer != dead && killer.alive && killer.shrapnel > 0) {
+            var dx = dead.object.transform.loc.x;
+            var dy = dead.object.transform.loc.y;
+            var n = 4 * killer.shrapnel;
+            for (i in 0...n) {
+                var a = i / n * Math.PI * 2 + Math.random() * 0.4;
+                var c = Math.cos(a), s2 = Math.sin(a);
+                spawnProjectile(dx + c * 1.2, dy + s2 * 1.2, c * 14.0, s2 * 14.0,
+                    killer.bulletDamage * 0.6, killer.bulletSize * 0.8, killer);
+            }
         }
         var aliveCount = 0;
         var last: Fighter = null;
@@ -209,7 +224,63 @@ class Game extends Trait {
         for (f in fighters) f.fullReset();
         for (i in 0...roundWins.length) roundWins[i] = 0;
         round = 0;
+        state = "select";
+        stateT = 0;
+        msg("CHOOSE YOUR FIGHTER!", 0xFFFFFFFF);
+    }
+
+    // ---- Character select ----
+
+    var selectCards: Array<{x: Float, y: Float, w: Float, h: Float}> = [];
+
+    public function chooseCharacter(i: Int) {
+        if (state != "select" || i < 0 || i >= CharKit.ALL.length) return;
+        var me = playerFighter;
+        if (me != null) {
+            me.fullReset();
+            CharKit.ALL[i].applyTo(me);
+            msg("You are " + CharKit.ALL[i].name + "!", 0xFF69F0AE);
+        }
+        startMatch();
+    }
+
+    public function clickSelect(mx: Float, my: Float) {
+        for (i in 0...selectCards.length) {
+            var c = selectCards[i];
+            if (mx >= c.x && mx <= c.x + c.w && my >= c.y && my <= c.y + c.h) {
+                chooseCharacter(i);
+                return;
+            }
+        }
+    }
+
+    function startMatch() {
+        // Bots get random unique kits
+        var pool = CharKit.ALL.copy();
+        for (f in fighters) {
+            if (f.isPlayer) continue;
+            f.fullReset();
+            var idx = Std.random(pool.length);
+            var kit = pool[idx];
+            pool.splice(idx, 1);
+            kit.applyTo(f);
+            f.botName = kit.name;
+        }
         resetRound();
+    }
+
+    // ---- Touch/mouse action buttons (fight state) ----
+
+    var btnBonk: {x: Float, y: Float, w: Float, h: Float} = null;
+    var btnSpecial: {x: Float, y: Float, w: Float, h: Float} = null;
+
+    public function uiButtonAt(mx: Float, my: Float): String {
+        if (state != "fight") return null;
+        if (btnBonk != null && mx >= btnBonk.x && mx <= btnBonk.x + btnBonk.w
+            && my >= btnBonk.y && my <= btnBonk.y + btnBonk.h) return "bonk";
+        if (btnSpecial != null && mx >= btnSpecial.x && mx <= btnSpecial.x + btnSpecial.w
+            && my >= btnSpecial.y && my <= btnSpecial.y + btnSpecial.h) return "special";
+        return null;
     }
 
     public function clampToArena(f: Fighter) {
@@ -362,6 +433,21 @@ class Game extends Trait {
             var hpk = Math.max(0, me.hp / me.maxHp);
             g.color = kha.Color.fromValue(hpk > 0.5 ? 0xFF69F0AE : (hpk > 0.25 ? 0xFFFFB300 : 0xFFE53935));
             g.fillRect(bx, by, bw * hpk, bh);
+            // Character name + special cooldown
+            if (me.kit != null) {
+                g.color = kha.Color.fromValue(me.kit.color);
+                centerText(g, me.kit.name, w / 2, by - 64 * s, Math.round(18 * s));
+                var sw = 200 * s, sh = 12 * s;
+                var sx2 = w / 2 - sw / 2, sy2 = by + bh + 8 * s;
+                g.color = kha.Color.fromValue(0xAA222222);
+                g.fillRect(sx2, sy2, sw, sh);
+                var rk = me.specialMax > 0 ? 1 - me.specialTimer / me.specialMax : 1;
+                if (rk < 0) rk = 0; if (rk > 1) rk = 1;
+                g.color = kha.Color.fromValue(rk >= 1 ? 0xFF69F0AE : 0xFF4FC3F7);
+                g.fillRect(sx2, sy2, sw * rk, sh);
+                g.color = kha.Color.White;
+                centerText(g, me.kit.specialName + (rk >= 1 ? " READY" : ""), w / 2, sy2 + sh + 6 * s, Math.round(15 * s));
+            }
             // power icons
             var ix = w / 2 - bw / 2;
             g.fontSize = Math.round(16 * s);
@@ -382,6 +468,69 @@ class Game extends Trait {
             var txt = n > 0 ? "" + n : "GO!";
             g.color = kha.Color.White;
             centerText(g, txt, w / 2, h / 2 - 60 * s, Math.round(90 * s));
+        }
+
+        // Character select
+        if (state == "select") {
+            g.color = kha.Color.fromValue(0xCC000000);
+            g.fillRect(0, 0, w, h);
+            g.color = kha.Color.White;
+            centerText(g, "CHOOSE YOUR FIGHTER  (click or 1-4)", w / 2, 90 * s, Math.round(32 * s));
+            selectCards = [];
+            var cw = 270 * s, ch = 320 * s, gap = 24 * s;
+            var totalW = 4 * cw + 3 * gap;
+            var sx = w / 2 - totalW / 2;
+            var sy = h / 2 - ch / 2 + 30 * s;
+            for (i in 0...CharKit.ALL.length) {
+                var kit = CharKit.ALL[i];
+                var cx0 = sx + i * (cw + gap);
+                selectCards.push({x: cx0, y: sy, w: cw, h: ch});
+                g.color = kha.Color.fromValue(0xFF222831);
+                g.fillRect(cx0, sy, cw, ch);
+                g.color = kha.Color.fromValue(kit.color);
+                g.fillRect(cx0, sy, cw, 12 * s);
+                g.color = kha.Color.White;
+                centerText(g, kit.name, cx0 + cw / 2, sy + 36 * s, Math.round(26 * s));
+                g.color = kha.Color.fromValue(0xFFBBBBBB);
+                var dl = wrapLines(g, kit.desc, cw - 30 * s, Math.round(17 * s));
+                var dyy = sy + 84 * s;
+                for (ln in dl) { centerText(g, ln, cx0 + cw / 2, dyy, Math.round(17 * s)); dyy += 24 * s; }
+                g.color = kha.Color.fromValue(0xFFFFFF00);
+                centerText(g, kit.specialName, cx0 + cw / 2, sy + 170 * s, Math.round(22 * s));
+                g.color = kha.Color.fromValue(0xFFBBBBBB);
+                var sl = wrapLines(g, kit.specialDesc, cw - 30 * s, Math.round(17 * s));
+                var syy = sy + 204 * s;
+                for (ln in sl) { centerText(g, ln, cx0 + cw / 2, syy, Math.round(17 * s)); syy += 24 * s; }
+                g.color = kha.Color.fromValue(0xFF888888);
+                centerText(g, "[" + (i + 1) + "]", cx0 + cw / 2, sy + ch - 44 * s, Math.round(20 * s));
+            }
+        }
+
+        // Fight action buttons (bottom-right, touch + mouse)
+        btnBonk = null;
+        btnSpecial = null;
+        if (state == "fight" && me != null && me.alive) {
+            var bs = 110 * s;
+            var bx0 = w - bs - 20 * s;
+            btnBonk = {x: bx0, y: h - bs - 20 * s, w: bs, h: bs};
+            g.color = kha.Color.fromValue(0xAA222222);
+            g.fillRect(btnBonk.x, btnBonk.y, bs, bs);
+            g.color = kha.Color.fromValue(0xFFFFD54F);
+            centerText(g, "BONK", bx0 + bs / 2, btnBonk.y + bs / 2 - 18 * s, Math.round(22 * s));
+            g.color = kha.Color.fromValue(0xFFAAAAAA);
+            centerText(g, "SPACE", bx0 + bs / 2, btnBonk.y + bs / 2 + 10 * s, Math.round(15 * s));
+            if (me.kit != null) {
+                btnSpecial = {x: bx0, y: h - 2 * bs - 40 * s, w: bs, h: bs};
+                var ready = me.specialTimer <= 0;
+                g.color = kha.Color.fromValue(ready ? 0xAA2E7D32 : 0xAA222222);
+                g.fillRect(btnSpecial.x, btnSpecial.y, bs, bs);
+                g.color = kha.Color.fromValue(me.kit.color);
+                var sn = me.kit.specialName.split(" ")[0].toUpperCase();
+                centerText(g, sn, bx0 + bs / 2, btnSpecial.y + bs / 2 - 18 * s, Math.round(20 * s));
+                g.color = kha.Color.fromValue(0xFFAAAAAA);
+                var sub = ready ? "Q" : ("" + Math.ceil(me.specialTimer) + "s");
+                centerText(g, sub, bx0 + bs / 2, btnSpecial.y + bs / 2 + 10 * s, Math.round(15 * s));
+            }
         }
 
         // Draft overlay
@@ -445,5 +594,19 @@ class Game extends Trait {
         g.fontSize = size;
         var tw = font.width(size, s);
         g.drawString(s, rx - tw, y);
+    }
+
+    function wrapLines(g: kha.graphics2.Graphics, text: String, maxW: Float, size: Int): Array<String> {
+        g.fontSize = size;
+        var words = text.split(" ");
+        var lines: Array<String> = [];
+        var cur = "";
+        for (wd in words) {
+            var t = cur == "" ? wd : cur + " " + wd;
+            if (font.width(size, t) > maxW && cur != "") { lines.push(cur); cur = wd; }
+            else cur = t;
+        }
+        if (cur != "") lines.push(cur);
+        return lines;
     }
 }

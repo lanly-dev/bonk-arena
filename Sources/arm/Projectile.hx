@@ -55,7 +55,8 @@ class Projectile extends Trait {
             var rr = f.radius + pr;
             if (dx * dx + dy * dy < rr * rr) {
                 var l = Math.sqrt(vx * vx + vy * vy) + 0.001;
-                var kb = 7.0 * (1 - f.knockResist);
+                var kd = (owner != null) ? owner.knockDealt : 1.0;
+                var kb = 7.0 * kd * (1 - f.knockResist);
                 f.velX += vx / l * kb;
                 f.velY += vy / l * kb;
                 f.damage(damage, owner);

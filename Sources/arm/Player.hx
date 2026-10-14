@@ -28,6 +28,7 @@ class Player extends Trait {
     var touchActive = false;
     var touchX = 0.0;
     var touchY = 0.0;
+    var uiBlockHeld = false;
 
     public function new() {
         super();
@@ -47,6 +48,14 @@ class Player extends Trait {
     }
 
     function onTouchStart(id: Int, x: Int, y: Int) {
+        // Menu states: tap = click
+        if (game.state == "select") { game.clickSelect(x, y); return; }
+        if (game.state == "draft") { game.clickDraft(x, y); return; }
+        if (game.state == "over") { game.rematch(); return; }
+        // Action buttons take priority over movement
+        var b = game.uiButtonAt(x, y);
+        if (b == "bonk") { fighter.tryBonk(); return; }
+        if (b == "special") { fighter.trySpecial(); return; }
         if (touchId != -1) return; // already tracking a finger
         touchId = id;
         touchActive = true;
@@ -67,6 +76,14 @@ class Player extends Trait {
     }
 
     function update() {
+        if (game.state == "select") {
+            if (kb.started("1")) game.chooseCharacter(0);
+            else if (kb.started("2")) game.chooseCharacter(1);
+            else if (kb.started("3")) game.chooseCharacter(2);
+            else if (kb.started("4")) game.chooseCharacter(3);
+            if (mouse.started("left")) game.clickSelect(mouse.x, mouse.y);
+            return;
+        }
         if (game.state == "draft") {
             if (kb.started("1")) game.chooseDraft(0);
             else if (kb.started("2")) game.chooseDraft(1);
@@ -106,7 +123,17 @@ class Player extends Trait {
         fighter.moveX = x;
         fighter.moveY = y;
 
-        if (mouse.down("left") || touchActive) fighter.tryFire();
+        // Melee + special
+        if (kb.started("space") || kb.started("e")) fighter.tryBonk();
+        if (kb.started("q")) fighter.trySpecial();
+        if (mouse.started("left")) {
+            var b = game.uiButtonAt(mouse.x, mouse.y);
+            if (b == "bonk") { fighter.tryBonk(); uiBlockHeld = true; }
+            else if (b == "special") { fighter.trySpecial(); uiBlockHeld = true; }
+        }
+        if (!mouse.down("left")) uiBlockHeld = false;
+
+        if ((mouse.down("left") || touchActive) && !uiBlockHeld) fighter.tryFire();
         if (mouse.started("right") || kb.started("shift")) fighter.tryDash(x, y);
     }
 

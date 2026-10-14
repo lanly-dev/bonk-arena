@@ -109,9 +109,9 @@ class Bot extends Trait {
         var dist = Math.sqrt(dx * dx + dy * dy) + 0.001;
         var nx = dx / dist, ny = dy / dist;
 
-        // Zone safety first
+        // Zone + arena-edge safety first (ring-outs are real now)
         var pr = Math.sqrt(p.x * p.x + p.y * p.y);
-        if (pr > game.zoneRadius - 1.5) {
+        if (pr > Math.min(game.zoneRadius - 1.5, 22.0)) {
             tx = -p.x / pr; ty = -p.y / pr;
             aimAt(e, dist);
             wantFire = dist < 20;
@@ -139,6 +139,16 @@ class Bot extends Trait {
 
         aimAt(e, dist);
         wantFire = dist < 21;
+
+        // Melee when close
+        if (dist < fighter.meleeRange + 0.8 && Math.random() < 0.5) fighter.tryBonk();
+
+        // Specials by kit
+        var sid = fighter.kit != null ? fighter.kit.specialId : null;
+        if (sid == "slam" && dist < 6.0 && Math.random() < 0.12) fighter.trySpecial();
+        else if (sid == "shockwave" && dist > 5 && dist < 17 && Math.random() < 0.10) fighter.trySpecial();
+        else if (sid == "blink" && dist > 11 && Math.random() < 0.10) fighter.trySpecial();
+        else if (sid == "grow" && dist < 11 && Math.random() < 0.10) fighter.trySpecial();
     }
 
     function aimAt(e: Fighter, dist: Float) {
@@ -162,7 +172,10 @@ class Bot extends Trait {
         for (o in options) {
             var w = Math.random();
             if (o.id == "big" || o.id == "rapid" || o.id == "multi") w += 0.5;
+            if (o.id == "heavyhits" || o.id == "giant" || o.id == "rage" || o.id == "shrapnel") w += 0.5;
             if (o.id == "swift" || o.id == "dash") w += 0.3;
+            if (o.id == "bonkaura" || o.id == "multidash" || o.id == "anchor") w += 0.3;
+            if (o.id == "secondwind") w += 0.2;
             if (w > bs) { bs = w; best = o; }
         }
         return best;

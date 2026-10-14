@@ -19,6 +19,7 @@ class Zone extends Trait {
     // Ring mesh has base major radius 1 -> scale to current radius
     public function setRadius(r: Float) {
         object.transform.scale.set(r, r, 1.0);
+        object.transform.buildMatrix();
     }
 
     function update() {
